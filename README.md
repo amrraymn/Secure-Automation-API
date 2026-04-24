@@ -1,49 +1,51 @@
-# Secure-Automation-API
-A professional Flask-based API designed for small-business automation workflows  
-This project streamlines leads management, order tracking, and payments while implementing robust **Security Layers** to protect business data.
+# Egypt SMB Automation API (Security Lab)
 
-## 🛡️ Security Lab Features
-I have transformed this automation tool into a **Secure API** by implementing:
-* **Token-based Authentication:** Restricts access to authorized users only.
-* **Strict Input Validation (Whitelisting):** A robust filtering system that prevents unexpected inputs and malicious attempts (e.g., blocking "HACK" keywords).
-* **Security Logging & Monitoring:** Every request (Success/Failure) is logged with IP addresses and Timestamps in `security_logs.txt` for auditing.
-* **Defensive Error Handling:** Custom exceptions to prevent information leakage during server errors.
+Simple Flask API for:
+- Leads
+- Orders
+- Payments
 
-## ✨ Core Business Features
-* **Leads Management:** Full CRM for potential customers.
-* **Order & Due Tracking:** Real-time tracking of orders and outstanding balances.
-* **Automatic Status Updates:** Orders move from `open` to `partial` or `paid` automatically based on payments.
-* **SQLite Storage:** Lightweight and reliable database management.
-* **JSON Validation:** Powered by Marshmallow for clean data serialization.
+Built for a portfolio/lab project with practical security basics.
 
-## 🛠️ Tech Stack
-* **Framework:** Flask
-* **ORM:** Flask-SQLAlchemy
-* **Validation:** Flask-Marshmallow
-* **Database:** SQLite
+## Security Implemented
+- Token auth on all `/api/*` routes.
+- Token read from `Authorization: Bearer <token>` header.
+- No token in query string.
+- Security logs with rotating files.
+- Token is never written to logs.
+- Input validation using Marshmallow schemas.
 
-## 🚀 Quick Start
-1. **Install dependencies:**
-   ```bash
-   python -m pip install -r automation/requirements_automation.txt
-Run API:
-   python -m automation.app 
-Health Check: http://127.0.0.1:8010/health
+## Environment Variables
+Use `.env.example` values as reference:
+- `DATABASE_URL`
+- `SECURITY_API_TOKEN`
+- `SECURITY_ENFORCE_AUTH`
+- `SECURITY_LOG_PATH`
 
-📂 Project Structure:
+## Run (Source)
+1. Install requirements:
+```bash
+python -m pip install -r automation/requirements_automation.txt
+```
+2. Set env token (example in PowerShell):
+```powershell
+$env:SECURITY_API_TOKEN="my-strong-token"
+```
+3. Run app:
+```bash
+python -m automation.app
+```
+4. Health check:
+`http://127.0.0.1:8010/health`
 
--automation/app.py: App factory and secure API routes.
+## Call Protected Endpoints
+Example:
+```bash
+curl -H "Authorization: Bearer my-strong-token" http://127.0.0.1:8010/api/leads
+```
 
--automation/models.py: Database models and schemas.
-
--automation_launcher_fixed.py: Desktop/EXE entry point.
-
--security_logs.txt: Log file for monitoring security events.                         
-
-  my next steps for this API include implementing protections against common attack vectors:
-
-* **DoS/DDoS Mitigation:** Implementing **Rate Limiting** to prevent automated scripts from overwhelming the API with requests.
-* **SQL Injection Prevention:** Moving to fully parameterized queries and ORM safety layers to ensure data integrity.
-* **Advanced Authentication:** Adding **JWT (JSON Web Tokens)** or **OAuth2** for more robust identity management beyond simple tokens.
-* **Brute-Force Protection:** Adding account lockout mechanisms and IP blacklisting for repeated failed attempts.
-* **Input Sanitization:** Enhancing validation to prevent **XSS** and other injection attacks through the API parameters
+## Project Files
+- `automation/app.py`: routes + auth + logging.
+- `automation/models.py`: SQLAlchemy models + Marshmallow schemas.
+- `automation/config.py`: app and security config.
+- `automation_launcher_fixed.py`: EXE entry point.

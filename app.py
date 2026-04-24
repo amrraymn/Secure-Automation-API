@@ -1,8 +1,11 @@
 from __future__ import annotations
-from flask import request
+import hmac
+import logging
+from logging.handlers import RotatingFileHandler
 from decimal import Decimal
-from datetime import datetime
-from flask import Flask, jsonify, request
+from functools import wraps
+
+from flask import Flask, current_app, jsonify, request
 from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
 
@@ -16,6 +19,9 @@ order_schema = OrderSchema()
 orders_schema = OrderSchema(many=True)
 payment_schema = PaymentSchema()
 payments_schema = PaymentSchema(many=True)
+
+
+security_logger = logging.getLogger("security")
 
 
 def _json_error(message: str, status_code: int = 400):
@@ -52,12 +58,69 @@ def _update_order_status(order: Order) -> None:
         order.status = "open"
 
 
+def _sanitize_log_value(value: str | None, limit: int = 100) -> str:
+    if not value:
+        return "-"
+    clean = value.replace("\r", " ").replace("\n", " ").strip()
+    if len(clean) > limit:
+        return clean[:limit] + "..."
+    return clean
+
+
+def _extract_bearer_token() -> str | None:
+    auth_header = request.headers.get("Authorization", "")
+    prefix = "Bearer "
+    if auth_header.startswith(prefix):
+        return auth_header[len(prefix):].strip()
+    return None
+
+
+def _setup_security_logger(app: Flask) -> None:
+    if security_logger.handlers:
+        return
+    security_logger.setLevel(logging.INFO)
+    handler = RotatingFileHandler(
+        app.config["SECURITY_LOG_PATH"],
+        maxBytes=1_000_000,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    security_logger.addHandler(handler)
+    security_logger.propagate = False
+
+
+def require_api_auth(route_func):
+    @wraps(route_func)
+    def wrapper(*args, **kwargs):
+        if not current_app.config["SECURITY_ENFORCE_AUTH"]:
+            return route_func(*args, **kwargs)
+
+        configured_token = current_app.config["SECURITY_API_TOKEN"]
+        provided_token = _extract_bearer_token() or ""
+        ip = _sanitize_log_value(request.remote_addr)
+        path = _sanitize_log_value(request.path)
+
+        if not provided_token:
+            security_logger.warning("auth_failed ip=%s path=%s reason=missing_token", ip, path)
+            return _json_error("Unauthorized: Missing bearer token.", 401)
+
+        if not hmac.compare_digest(provided_token, configured_token):
+            security_logger.warning("auth_failed ip=%s path=%s reason=invalid_token", ip, path)
+            return _json_error("Unauthorized: Invalid token.", 403)
+
+        return route_func(*args, **kwargs)
+
+    return wrapper
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_object(Config)
 
     db.init_app(app)
     ma.init_app(app)
+    _setup_security_logger(app)
 
     with app.app_context():
         db.create_all()
@@ -76,6 +139,7 @@ def create_app() -> Flask:
         return jsonify({"ok": True, "status": "healthy"})
 
     @app.post("/api/leads")
+    @require_api_auth
     def create_lead():
         payload = _read_json()
         data = lead_schema.load(payload)
@@ -88,31 +152,14 @@ def create_app() -> Flask:
             return _json_error("Lead phone already exists.", 409)
         return jsonify({"ok": True, "lead": lead_schema.dump(lead)}), 201
 
-    @app.get("/api/leads") 
+    @app.get("/api/leads")
+    @require_api_auth
     def list_leads():
-
-    
-        with open("security_logs.txt", "a") as f:
-            
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-            user_ip = request.remote_addr
-            token_used = request.args.get('token', 'NO_TOKEN')
-            status_val = request.args.get('status', 'NONE')
-        
-    
-            f.write(f"[{now}] IP: {user_ip} | Token: {token_used} | Status: {status_val}\n")
-        
-        if request.args.get('token') != 'YOUR_TOKEN_HERE':
-         return {"ok": False, "error": "Unauthorized: Invalid Security Token"}, 403
-      
-
-
         status = request.args.get("status")
         allowed_statuses = ["new", "active", "closed", None] 
-    
-        if status not in allowed_statuses: 
-         return {"ok": False, "error": "Security Alert: Invalid Input Detected!"}, 400
+
+        if status not in allowed_statuses:
+            return {"ok": False, "error": "Invalid status filter."}, 400
         page, per_page = _read_pagination()
         source = request.args.get("source")
 
@@ -136,12 +183,14 @@ def create_app() -> Flask:
         )
 
     @app.get("/api/leads/<int:lead_id>")
+    @require_api_auth
     def get_lead(lead_id: int):
         lead = Lead.query.get_or_404(lead_id)
         return jsonify({"ok": True, "lead": lead_schema.dump(lead)})
 
     @app.put("/api/leads/<int:lead_id>")
     @app.patch("/api/leads/<int:lead_id>")
+    @require_api_auth
     def update_lead(lead_id: int):
         lead = Lead.query.get_or_404(lead_id)
         payload = _read_json()
@@ -156,6 +205,7 @@ def create_app() -> Flask:
         return jsonify({"ok": True, "lead": lead_schema.dump(lead)})
 
     @app.delete("/api/leads/<int:lead_id>")
+    @require_api_auth
     def delete_lead(lead_id: int):
         lead = Lead.query.get_or_404(lead_id)
         db.session.delete(lead)
@@ -163,6 +213,7 @@ def create_app() -> Flask:
         return jsonify({"ok": True, "message": "Lead deleted."})
 
     @app.post("/api/orders")
+    @require_api_auth
     def create_order():
         payload = _read_json()
         data = order_schema.load(payload)
@@ -176,6 +227,7 @@ def create_app() -> Flask:
         return jsonify({"ok": True, "order": order_schema.dump(order)}), 201
 
     @app.get("/api/orders")
+    @require_api_auth
     def list_orders():
         page, per_page = _read_pagination()
         status = request.args.get("status")
@@ -204,12 +256,14 @@ def create_app() -> Flask:
         )
 
     @app.get("/api/orders/<int:order_id>")
+    @require_api_auth
     def get_order(order_id: int):
         order = Order.query.get_or_404(order_id)
         return jsonify({"ok": True, "order": order_schema.dump(order)})
 
     @app.put("/api/orders/<int:order_id>")
     @app.patch("/api/orders/<int:order_id>")
+    @require_api_auth
     def update_order(order_id: int):
         order = Order.query.get_or_404(order_id)
         payload = _read_json()
@@ -225,6 +279,7 @@ def create_app() -> Flask:
         return jsonify({"ok": True, "order": order_schema.dump(order)})
 
     @app.delete("/api/orders/<int:order_id>")
+    @require_api_auth
     def delete_order(order_id: int):
         order = Order.query.get_or_404(order_id)
         db.session.delete(order)
@@ -232,6 +287,7 @@ def create_app() -> Flask:
         return jsonify({"ok": True, "message": "Order deleted."})
 
     @app.post("/api/payments")
+    @require_api_auth
     def create_payment():
         payload = _read_json()
         data = payment_schema.load(payload)
@@ -250,6 +306,7 @@ def create_app() -> Flask:
         return jsonify({"ok": True, "payment": payment_schema.dump(payment)}), 201
 
     @app.get("/api/payments")
+    @require_api_auth
     def list_payments():
         page, per_page = _read_pagination()
         order_id = request.args.get("order_id")
@@ -278,12 +335,14 @@ def create_app() -> Flask:
         )
 
     @app.get("/api/payments/<int:payment_id>")
+    @require_api_auth
     def get_payment(payment_id: int):
         payment = Payment.query.get_or_404(payment_id)
         return jsonify({"ok": True, "payment": payment_schema.dump(payment)})
 
     @app.put("/api/payments/<int:payment_id>")
     @app.patch("/api/payments/<int:payment_id>")
+    @require_api_auth
     def update_payment(payment_id: int):
         payment = Payment.query.get_or_404(payment_id)
         payload = _read_json()
@@ -321,6 +380,7 @@ def create_app() -> Flask:
         return jsonify({"ok": True, "payment": payment_schema.dump(payment)})
 
     @app.delete("/api/payments/<int:payment_id>")
+    @require_api_auth
     def delete_payment(payment_id: int):
         payment = Payment.query.get_or_404(payment_id)
         order = payment.order
