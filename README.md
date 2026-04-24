@@ -1,51 +1,66 @@
-# Egypt SMB Automation API (Security Lab)
+A professional Flask-based API designed for small-business automation workflows in Egypt. This project streamlines leads management, order tracking, and payments while implementing practical security layers to protect business data.
 
-Simple Flask API for:
-- Leads
-- Orders
-- Payments
+## Security Lab Features
+I transformed this automation tool into a secure API by implementing:
+- Token-based authentication to restrict access to authorized users.
+- Input validation and filtering using Marshmallow schemas.
+- Security logging and monitoring for unauthorized access attempts.
+- Defensive error handling to avoid unnecessary information leakage.
 
-Built for a portfolio/lab project with practical security basics.
+## Core Business Features
+- Leads management (create, read, update, delete).
+- Orders and due tracking.
+- Automatic order status updates (`open`, `partial`, `paid`) based on payments.
+- SQLite storage.
+- JSON validation and serialization with Marshmallow.
 
-## Security Implemented
-- Token auth on all `/api/*` routes.
-- Token read from `Authorization: Bearer <token>` header.
-- No token in query string.
-- Security logs with rotating files.
-- Token is never written to logs.
-- Input validation using Marshmallow schemas.
+## Tech Stack
+- Framework: Flask
+- ORM: Flask-SQLAlchemy
+- Validation: Flask-Marshmallow / Marshmallow
+- Database: SQLite
 
-## Environment Variables
-Use `.env.example` values as reference:
-- `DATABASE_URL`
-- `SECURITY_API_TOKEN`
-- `SECURITY_ENFORCE_AUTH`
-- `SECURITY_LOG_PATH`
-
-## Run (Source)
-1. Install requirements:
+## Quick Start
+1. Install dependencies:
 ```bash
 python -m pip install -r automation/requirements_automation.txt
 ```
-2. Set env token (example in PowerShell):
+
+2. Set your API token (PowerShell example):
 ```powershell
 $env:SECURITY_API_TOKEN="my-strong-token"
 ```
-3. Run app:
+
+3. Run API:
 ```bash
 python -m automation.app
 ```
+
 4. Health check:
 `http://127.0.0.1:8010/health`
 
-## Call Protected Endpoints
+## Protected API Usage
+All `/api/*` endpoints require:
+```http
+Authorization: Bearer <your-token>
+```
+
 Example:
 ```bash
 curl -H "Authorization: Bearer my-strong-token" http://127.0.0.1:8010/api/leads
 ```
 
-## Project Files
-- `automation/app.py`: routes + auth + logging.
-- `automation/models.py`: SQLAlchemy models + Marshmallow schemas.
-- `automation/config.py`: app and security config.
-- `automation_launcher_fixed.py`: EXE entry point.
+## Project Structure
+- `automation/app.py`: App factory and secure API routes.
+- `automation/models.py`: Database models and schemas.
+- `automation/config.py`: Environment and security configuration.
+- `automation_launcher_fixed.py`: Desktop/EXE entry point.
+
+## Latest Security Fixes (Review Update)
+This section summarizes the fixes applied after code review:
+
+1. Authentication is now centralized and enforced across all protected `/api/*` endpoints.
+2. Hardcoded/query-string token usage was removed; token now comes from environment variables and `Authorization: Bearer` header.
+3. Security logs were improved to avoid token leakage and sanitize untrusted input before logging.
+4. Documentation was aligned with the real implementation so security behavior matches what is described.
+
